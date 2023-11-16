@@ -43,7 +43,6 @@ check:
 	$(MAKE) -C tests check
 
 $(LIB):	$(OBJECTS)
-	include uip/Makefile.include
 	$(AR) $(ARFLAGS) $@ $^
 	ranlib $@
 
