@@ -5,25 +5,14 @@ typedef int uip_tcp_appstate_t; // XXX: placeholder because I don't know what it
 #include "uip.h"
 #include <stdint.h>
 
-/* Use same log level as CoAP as default */
-#define LOG_LEVEL_DTLS LOG_LEVEL_COAP
-
-#define DTLS_LOG_CONF_PATH "sys/log.h"
-
-typedef struct {
-  struct ctimer retransmit_timer;
-} dtls_support_context_state_t;
-
-#define DTLS_SUPPORT_CONF_CONTEXT_STATE dtls_support_context_state_t
-
 typedef struct {
   uip_ipaddr_t addr;
   uint16_t port;
 } session_t;
 
-#define DTLS_TICKS_PER_SECOND CLOCK_SECOND
+#define DTLS_TICKS_PER_SECOND 1000
 
-typedef clock_time_t dtls_tick_t;
+typedef uint64_t dtls_tick_t;
 
 #define HAVE_ASSERT_H 1
 
