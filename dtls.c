@@ -1393,6 +1393,7 @@ dtls_send_handshake_msg_hash(dtls_context_t *ctx,
   int i = 0;
   dtls_security_parameters_t *security = peer ? dtls_security_params(peer) : NULL;
 
+
   dtls_set_handshake_header(header_type, peer, data_length, 0,
 			    data_length, buf);
 
@@ -1498,6 +1499,9 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
     overall_len += buf_len_array[i];
   }
 
+
+  dtls_debug("dtls_send_multi debug 0\n");
+
   if ((type == DTLS_CT_HANDSHAKE && buf_array[0][0] != DTLS_HT_HELLO_VERIFY_REQUEST) ||
       type == DTLS_CT_CHANGE_CIPHER_SPEC) {
     /* copy handshake messages other than HelloVerify into retransmit buffer */
@@ -1521,12 +1525,14 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
 	dtls_warn("cannot add packet to retransmit buffer\n");
 	netq_node_free(n);
       } else {
+	      dtls_debug("copied to sendqueue\n");
         dtls_set_retransmit_timer(ctx, n->timeout);
-	dtls_debug("copied to sendqueue\n");
       }
     } else 
       dtls_warn("retransmit buffer full\n");
   }
+
+  dtls_debug("dtls_send_multi debug 2\n");
 
   /* FIXME: copy to peer's sendqueue (after fragmentation if
    * necessary) and initialize retransmit timer */
@@ -1813,11 +1819,15 @@ dtls_send_server_hello(dtls_context_t *ctx, dtls_peer_t *peer)
     return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
   }
 
+  dtls_debug("dtls_send_server_hello debug 0\n");
+
   handshake = peer->handshake_params;
 
   ecdsa = is_tls_ecdhe_ecdsa_with_aes_128_ccm_8(handshake->cipher);
 
   extension_size = (ecdsa) ? 2 + 5 + 5 + 6 : 0;
+
+  dtls_debug("dtls_send_server_hello debug 1\n");
 
   /* Handshake header */
   p = buf;
@@ -1831,11 +1841,13 @@ dtls_send_server_hello(dtls_context_t *ctx, dtls_peer_t *peer)
   dtls_ticks(&now);
   dtls_int_to_uint32(handshake->tmp.random.server, now / DTLS_TICKS_PER_SECOND);
   dtls_fill_random(handshake->tmp.random.server + 4, 28);
+  
 
   memcpy(p, handshake->tmp.random.server, DTLS_RANDOM_LENGTH);
   p += DTLS_RANDOM_LENGTH;
 
   *p++ = 0;			/* no session id */
+
 
   if (handshake->cipher != TLS_NULL_WITH_NULL_NULL) {
     /* selected cipher suite */
@@ -2147,6 +2159,7 @@ dtls_send_server_hello_done(dtls_context_t *ctx, dtls_peer_t *peer)
 static int
 dtls_send_server_hello_msgs(dtls_context_t *ctx, dtls_peer_t *peer)
 {
+  dtls_debug("dtls_send_server_hello_msgs:\n");
   int res;
 
   res = dtls_send_server_hello(ctx, peer);
@@ -2154,6 +2167,8 @@ dtls_send_server_hello_msgs(dtls_context_t *ctx, dtls_peer_t *peer)
   if (res < 0) {
     dtls_debug("dtls_server_hello: cannot prepare ServerHello record\n");
     return res;
+  } else {
+    dtls_debug("dtls_server_hello: send %i bytes\n", res);
   }
 
   if(!peer || !peer->handshake_params) {
@@ -2227,6 +2242,8 @@ dtls_send_server_hello_msgs(dtls_context_t *ctx, dtls_peer_t *peer)
   if (res < 0) {
     dtls_debug("dtls_server_hello: cannot prepare ServerHelloDone record\n");
     return res;
+  } else {
+    dtls_debug("dtls_send_server_hello_done: send %i bytes\n", res);
   }
   return 0;
 }
@@ -3128,7 +3145,10 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
    * we do everything accordingly to the DTLS 1.2 standard this should
    * not be a problem. */
   if (peer) {
+    printf("dtls_stop_retransmission\n");
     dtls_stop_retransmission(ctx, peer);
+  } else {
+    printf("peer is NULL\n");
   }
 
   /* The following switch construct handles the given message with
@@ -3385,11 +3405,11 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
     if (err < 0) {
       dtls_warn("error in dtls_verify_peer err: %i\n", err);
       return err;
-    }
-
-    if (err > 0) {
+    } else if (err > 0) {
       dtls_debug("server hello verify was sent\n");
       break;
+    } else {
+      dtls_debug("no server hello verify was sent\n");
     }
 
     /* At this point, we have a good relationship with this peer. This
@@ -3398,6 +3418,7 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
       * rehandshake, we can delete the existing key material
       * as the client has demonstrated reachibility by completing
       * the cookie exchange */
+
     if (peer && state == DTLS_STATE_WAIT_CLIENTHELLO) {
        dtls_debug("removing the peer\n");
        delete_peer(&ctx->peers, peer);
@@ -3424,11 +3445,13 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
        */
       security = dtls_security_params(peer);
       security->rseq = 1;
-
+  
       if (dtls_add_peer(ctx, peer) < 0) {
 	dtls_alert("cannot add peer\n");
 	dtls_free_peer(peer);
         return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+      } else {
+        dtls_debug("peer added\n");
       }
     }
     if (!peer->handshake_params) {
@@ -3440,6 +3463,9 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
 
       peer->handshake_params->hs_state.mseq_r = dtls_uint16_to_int(hs_header->message_seq);
       peer->handshake_params->hs_state.mseq_s = 1;
+
+      dtls_debug("new handshake params allocated\n");
+      dtls_debug("mseq_r: %i, mseq_s: %i\n", peer->handshake_params->hs_state.mseq_r, peer->handshake_params->hs_state.mseq_s);
     }
 
     clear_hs_hash(peer);
@@ -3457,6 +3483,7 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
     }
 
     /* update finish MAC */
+    dtls_warn("update finish MAC\n");
     update_hs_hash(peer, data, data_length);
 
     err = dtls_send_server_hello_msgs(ctx, peer);
@@ -3530,6 +3557,7 @@ handle_handshake(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
     return dtls_alert_fatal_create(DTLS_ALERT_DECODE_ERROR);
   }
   hs_header = DTLS_HANDSHAKE_HEADER(data);
+  dtls_debug("debug 3, %d\n", dtls_uint16_to_int(hs_header->message_seq));
 
   dtls_debug("received handshake packet of type: %s (%i)\n",
 	     dtls_handshake_type_to_name(hs_header->msg_type), hs_header->msg_type);
@@ -3544,6 +3572,7 @@ handle_handshake(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
     /* This is a ClientHello or Hello Request send when doing TLS renegotiation */
     if (hs_header->msg_type == DTLS_HT_CLIENT_HELLO ||
 	hs_header->msg_type == DTLS_HT_HELLO_REQUEST) {
+      dtls_debug("handle_handshake_msg debug 1\n");
       return handle_handshake_msg(ctx, peer, session, role, state, data,
 				  data_length);
     } else {
@@ -3595,7 +3624,7 @@ handle_handshake(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
   } else if (dtls_uint16_to_int(hs_header->message_seq) == peer->handshake_params->hs_state.mseq_r) {
     /* Found the expected packet, use this and all the buffered packet */
     int next = 1;
-
+    dtls_debug("handle_handshake_msg debug 2\n");
     res = handle_handshake_msg(ctx, peer, session, role, state, data, data_length);
     if (res < 0)
       return res;
@@ -3610,6 +3639,7 @@ handle_handshake(dtls_context_t *ctx, dtls_peer_t *peer, session_t *session,
         if (dtls_uint16_to_int(node_header->message_seq) == peer->handshake_params->hs_state.mseq_r) {
           netq_remove(&peer->handshake_params->reorder_queue, node);
           next = 1;
+          dtls_debug("handle_handshake_msg debug 3\n");
           res = handle_handshake_msg(ctx, peer, session, role, peer->state, node->data, node->length);
           if (res < 0) {
             return res;
@@ -3856,41 +3886,41 @@ dtls_handle_message(dtls_context_t *ctx,
        * epoch, Finish has epoch + 1. */
 
       if (peer && dtls_security_params(peer)) {
-	uint16_t expected_epoch = dtls_security_params(peer)->epoch;
-	uint16_t msg_epoch = 
-	  dtls_uint16_to_int(DTLS_RECORD_HEADER(msg)->epoch);
+        uint16_t expected_epoch = dtls_security_params(peer)->epoch;
+        uint16_t msg_epoch = 
+          dtls_uint16_to_int(DTLS_RECORD_HEADER(msg)->epoch);
 
-	/* The new security parameters must be used for all messages
-	 * that are sent after the ChangeCipherSpec message. This
-	 * means that the client's Finished message uses epoch + 1
-	 * while the server is still in the old epoch.
-	 */
-	if (role == DTLS_SERVER && state == DTLS_STATE_WAIT_FINISHED) {
-	  expected_epoch++;
-	}
+        /* The new security parameters must be used for all messages
+        * that are sent after the ChangeCipherSpec message. This
+        * means that the client's Finished message uses epoch + 1
+        * while the server is still in the old epoch.
+        */
+        if (role == DTLS_SERVER && state == DTLS_STATE_WAIT_FINISHED) {
+          expected_epoch++;
+        }
 
-	if (expected_epoch != msg_epoch) {
-          if (hs_attempt_with_existing_peer(msg, rlen, peer)) {
-            state = DTLS_STATE_WAIT_CLIENTHELLO;
-            role = DTLS_SERVER;
-          } else {
-	    dtls_warn("Wrong epoch, expected %i, got: %i\n",
-		    expected_epoch, msg_epoch);
-	    break;
-	  }
-	}
+        if (expected_epoch != msg_epoch) {
+                if (hs_attempt_with_existing_peer(msg, rlen, peer)) {
+                  state = DTLS_STATE_WAIT_CLIENTHELLO;
+                  role = DTLS_SERVER;
+                } else {
+            dtls_warn("Wrong epoch, expected %i, got: %i\n",
+              expected_epoch, msg_epoch);
+            break;
+          }
+        }
       }
 
       err = handle_handshake(ctx, peer, session, role, state, data, data_length);
       if (err < 0) {
-	dtls_warn("error while handling handshake packet\n");
-	dtls_alert_send_from_err(ctx, peer, session, err);
-	return err;
+        dtls_warn("error while handling handshake packet\n");
+        dtls_alert_send_from_err(ctx, peer, session, err);
+        return err;
       }
       if (peer && peer->state == DTLS_STATE_CONNECTED) {
-	/* stop retransmissions */
-	dtls_stop_retransmission(ctx, peer);
-	CALL(ctx, event, &peer->session, 0, DTLS_EVENT_CONNECTED);
+        /* stop retransmissions */
+        dtls_stop_retransmission(ctx, peer);
+        CALL(ctx, event, &peer->session, 0, DTLS_EVENT_CONNECTED);
       }
       break;
 

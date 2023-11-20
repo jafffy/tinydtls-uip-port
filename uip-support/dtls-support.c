@@ -10,22 +10,22 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <time.h>
+#include "clock-arch.h"
+#include "timer.h"
 
-#include <pthread.h>
-static pthread_mutex_t cipher_context_mutex = PTHREAD_MUTEX_INITIALIZER;
+#include "uip.h"
+#include "pt.h"
+
+
+static dtls_context_t the_dtls_context;
 static dtls_cipher_context_t cipher_context;
-#define LOCK(P) pthread_mutex_lock(P)
-#define UNLOCK(P) pthread_mutex_unlock(P)
+static uint8_t lock_context = 0;
 
 /* Log configuration */
 #define LOG_MODULE "dtls-support"
 #define LOG_LEVEL  LOG_LEVEL_DTLS
 #include "dtls-log.h"
 
-#ifndef MAX
-#define MAX(a,b) (((a) < (b)) ? (b) : (a))
-#endif /* MAX */
 
 void
 dtls_support_log_prefix(int level, const char *level_str, const char *module)
@@ -49,15 +49,13 @@ dtls_support_log_prefix(int level, const char *level_str, const char *module)
 dtls_cipher_context_t *
 dtls_cipher_context_acquire(void)
 {
-  LOCK(&cipher_context_mutex);
   return &cipher_context;
 }
 
 void
 dtls_cipher_context_release(dtls_cipher_context_t *c)
 {
-  /* just one single context for now */
-  UNLOCK(&cipher_context_mutex);
+  
 }
 
 
@@ -84,26 +82,27 @@ memb_free(struct memb *m, void *ptr)
 dtls_context_t *
 dtls_context_acquire(void)
 {
-  return (dtls_context_t *)malloc(sizeof(dtls_context_t));
+  if(lock_context) {
+    return NULL;
+  }
+  lock_context = 1;
+  return &the_dtls_context;
 }
 
 void
 dtls_context_release(dtls_context_t *context)
 {
-  free(context);
+  if(context == &the_dtls_context) {
+    lock_context = 0;
+  }
 }
 
 /* --------- time support ----------- */
 
-static time_t dtls_clock_offset;
-
 void
 dtls_ticks(dtls_tick_t *t)
 {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  *t = (tv.tv_sec - dtls_clock_offset) * (dtls_tick_t)DTLS_TICKS_PER_SECOND
-    + (tv.tv_usec * (dtls_tick_t)DTLS_TICKS_PER_SECOND / 1000000);
+  *t = clock_time();
 }
 
 int
@@ -127,10 +126,55 @@ dtls_fill_random(uint8_t *buf, size_t len)
   return 1;
 }
 
+// static void
+// dtls_retransmit_callback(void *ptr)
+// {
+//   dtls_context_t *context;
+//   clock_time_t now;
+//   clock_time_t next;
+
+//   context = ptr;
+
+//   now = clock_time();
+
+//   /* Just one retransmission per timer scheduling */
+//   dtls_check_retransmit(context, &next, 0);
+
+//   if(next != 0) {
+//     ctimer_set(&context->support.retransmit_timer,
+//                next <= now ? 1 : next - now,
+//                dtls_retransmit_callback, context);
+//   }
+// }
+/*---------------------------------------------------------------------------*/
+
+// void ctimer_set()
+
 void
-dtls_set_retransmit_timer(dtls_context_t *ctx, unsigned int timeout)
+dtls_set_retransmit_timer(dtls_context_t *context, unsigned int time)
 {
-  /* Do nothing for now ... */
+  // Implement this using callback timer
+  // Called from dtls.c line 1529
+
+  // Blocking implementation
+
+  // dtls_tick_t next;
+  // struct timer ret_timer;
+  // printf("time: %d\n", time);
+  // timer_set(&ret_timer, time);
+  // while (1) {
+  //   if (timer_expired(&ret_timer)) {
+  //     dtls_tick_t now = clock_time();
+  //     dtls_check_retransmit(context, &next, 1);
+  //     printf("next: %lu, now: %lu, %lu\n", next, next-now, (unsigned long) (next-now)/DTLS_TICKS_PER_SECOND );
+  
+  //     if (next != 0) {
+  //       timer_set(&ret_timer, next <= now ? 1 * DTLS_TICKS_PER_SECOND : next - now);
+  //     } else {
+  //       break;
+  //     }
+  //   }
+  // }
 }
 
 /* Implementation of session functions */
@@ -148,14 +192,12 @@ dtls_session_equals(const session_t *a, const session_t *b) {
 void *
 dtls_session_get_address(const session_t *a)
 {
-  /* improve this to only contain the addressing info */
   return (void *)a;
 }
 
 int
 dtls_session_get_address_size(const session_t *a)
 {
-  /* improve this to only contain the addressing info */
   return sizeof(session_t);
 }
 
@@ -185,14 +227,4 @@ dtls_session_print(const session_t *addr)
 void
 dtls_support_init(void)
 {
-#ifdef HAVE_TIME_H
-  dtls_clock_offset = time(NULL);
-#else
-# ifdef __GNUC__
-  /* Issue a warning when using gcc. Other prepropressors do
-   *  not seem to have a similar feature. */
-#  warning "cannot initialize clock"
-# endif
-  dtls_clock_offset = 0;
-#endif
 }
